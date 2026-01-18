@@ -1,9 +1,15 @@
+// lib/pacientes_screen.dart
 import 'package:flutter/material.dart';
 
 import 'pacientes_store.dart';
 import 'persistencia_pacientes.dart';
 import 'paciente.dart';
 import 'citas_store.dart';
+
+// ✅ NUEVO
+import 'historias_screen.dart';
+import 'historias_store.dart';
+import 'persistencia_historias.dart'; // ✅ para cargar/refresh
 
 class PacientesScreen extends StatefulWidget {
   const PacientesScreen({super.key});
@@ -13,6 +19,28 @@ class PacientesScreen extends StatefulWidget {
 }
 
 class _PacientesScreenState extends State<PacientesScreen> {
+  bool _loadingHistorias = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarHistoriasParaContadores();
+  }
+
+  Future<void> _cargarHistoriasParaContadores() async {
+    if (_loadingHistorias) return;
+    _loadingHistorias = true;
+    try {
+      // ✅ asegura que HistoriasStore.historias tenga datos antes de contar
+      await PersistenciaHistorias.cargar();
+    } catch (_) {
+      // no crashear
+    } finally {
+      _loadingHistorias = false;
+      if (mounted) setState(() {});
+    }
+  }
+
   Future<void> _nuevoPaciente() async {
     final nombreCtrl = TextEditingController();
     final telCtrl = TextEditingController();
@@ -34,7 +62,8 @@ class _PacientesScreenState extends State<PacientesScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: telCtrl,
-                decoration: const InputDecoration(labelText: 'Teléfono (opcional)'),
+                decoration:
+                    const InputDecoration(labelText: 'Teléfono (opcional)'),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
               ),
@@ -86,6 +115,22 @@ class _PacientesScreenState extends State<PacientesScreen> {
     setState(() {});
   }
 
+  // ✅ abrir historias de un paciente
+  Future<void> _verHistoriasPaciente(Paciente p) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HistoriasScreen(
+          pacienteId: p.id,
+          pacienteNombre: p.nombre,
+        ),
+      ),
+    );
+
+    // ✅ al volver, recargar historias para que el contador se actualice SIEMPRE
+    await _cargarHistoriasParaContadores();
+  }
+
   @override
   Widget build(BuildContext context) {
     final pacientes = PacientesStore.pacientes;
@@ -94,6 +139,11 @@ class _PacientesScreenState extends State<PacientesScreen> {
       appBar: AppBar(
         title: const Text('Pacientes'),
         actions: [
+          IconButton(
+            tooltip: 'Recargar historias',
+            icon: const Icon(Icons.refresh),
+            onPressed: _cargarHistoriasParaContadores,
+          ),
           IconButton(
             tooltip: 'Agregar',
             icon: const Icon(Icons.person_add),
@@ -109,17 +159,35 @@ class _PacientesScreenState extends State<PacientesScreen> {
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (_, i) {
                 final p = pacientes[i];
+
                 final citasDePaciente =
                     CitasStore.citas.where((c) => c.pacienteId == p.id).length;
+
+                // ✅ contar historias por paciente (store ya cargado)
+                final historiasDePaciente = HistoriasStore.historias
+                    .where((h) => h.pacienteId == p.id)
+                    .length;
 
                 return Card(
                   child: ListTile(
                     leading: const CircleAvatar(child: Icon(Icons.person)),
                     title: Text(p.nombre),
                     subtitle: Text(
-                      'Tel: ${p.telefono.isEmpty ? "-" : p.telefono}\nCitas: $citasDePaciente',
+                      'Tel: ${p.telefono.isEmpty ? "-" : p.telefono}\n'
+                      'Citas: $citasDePaciente • Historias: $historiasDePaciente',
                     ),
                     isThreeLine: true,
+                    trailing: Wrap(
+                      spacing: 4,
+                      children: [
+                        IconButton(
+                          tooltip: 'Historias clínicas',
+                          icon: const Icon(Icons.folder_shared),
+                          onPressed: () => _verHistoriasPaciente(p),
+                        ),
+                      ],
+                    ),
+                    onTap: () => _verHistoriasPaciente(p),
                   ),
                 );
               },

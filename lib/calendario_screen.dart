@@ -28,7 +28,8 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final citasSel = _selectedDay == null ? <Cita>[] : _citasDelDia(_selectedDay!);
+    final citasSel =
+        _selectedDay == null ? <Cita>[] : _citasDelDia(_selectedDay!);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Calendario')),
@@ -65,13 +66,17 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(width: 1),
                           ),
-                          child: Text('$count', style: const TextStyle(fontSize: 10)),
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(fontSize: 10),
+                          ),
                         ),
                       );
                     },
                     defaultBuilder: (context, day, focusedDay) {
                       final d = _soloFecha(day);
                       if (!Festivos.esFestivo(d)) return null;
+
                       return Container(
                         margin: const EdgeInsets.all(6),
                         alignment: Alignment.center,
@@ -87,7 +92,6 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
               ),
             ),
           ),
-
           if (_selectedDay != null) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -105,7 +109,6 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
             ),
             const SizedBox(height: 8),
           ],
-
           Expanded(
             child: citasSel.isEmpty
                 ? const Center(child: Text('Selecciona un día para ver sus citas'))
@@ -115,12 +118,16 @@ class _CalendarioScreenState extends State<CalendarioScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (_, i) {
                       final c = citasSel[i];
-                      final h = '${c.fechaHora.hour.toString().padLeft(2, '0')}:${c.fechaHora.minute.toString().padLeft(2, '0')}';
+                      final h =
+                          '${c.fechaHora.hour.toString().padLeft(2, '0')}:${c.fechaHora.minute.toString().padLeft(2, '0')}';
+
                       return Card(
                         child: ListTile(
                           leading: const Icon(Icons.event),
                           title: Text(c.paciente),
-                          subtitle: Text('Hora: $h\nEstado: ${c.estado.name}\n${c.notas.isEmpty ? "(sin notas)" : c.notas}'),
+                          subtitle: Text(
+                            'Hora: $h\nEstado: ${c.estado.name}\n${c.notas.isEmpty ? "(sin notas)" : c.notas}',
+                          ),
                           isThreeLine: true,
                         ),
                       );

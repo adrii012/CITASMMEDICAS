@@ -1,35 +1,49 @@
-class Paciente {
+// lib/almacen_item.dart
+class AlmacenItem {
   String id;
   String nombre;
-  String telefono;
+  int stock;
   String notas;
 
-  /// ✅ para estadísticas “pacientes nuevos por mes”
+  /// ✅ Umbral por item (si stock <= minStock => BAJO)
+  int minStock;
+
+  /// ✅ Para stats/futuro
   String createdAtIso;
 
-  Paciente({
+  AlmacenItem({
     required this.id,
     required this.nombre,
-    this.telefono = '',
+    this.stock = 0,
     this.notas = '',
+    this.minStock = 5,
     String? createdAtIso,
   }) : createdAtIso = createdAtIso ?? DateTime.now().toIso8601String();
+
+  bool get isLow => stock <= minStock;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'nombre': nombre,
-        'telefono': telefono,
+        'stock': stock,
         'notas': notas,
+        'minStock': minStock,
         'createdAtIso': createdAtIso,
       };
 
-  factory Paciente.fromJson(Map<String, dynamic> json) => Paciente(
+  factory AlmacenItem.fromJson(Map<String, dynamic> json) => AlmacenItem(
         id: (json['id'] ?? '').toString(),
         nombre: (json['nombre'] ?? '').toString(),
-        telefono: (json['telefono'] ?? '').toString(),
+        stock: _parseInt(json['stock'], fallback: 0),
         notas: (json['notas'] ?? '').toString(),
+        minStock: _parseInt(json['minStock'], fallback: 5),
         createdAtIso: (json['createdAtIso'] ?? '').toString().trim().isEmpty
             ? DateTime.now().toIso8601String()
             : (json['createdAtIso'] ?? '').toString(),
       );
+
+  static int _parseInt(dynamic v, {int fallback = 0}) {
+    if (v is int) return v;
+    return int.tryParse((v ?? '').toString()) ?? fallback;
+  }
 }

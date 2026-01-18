@@ -14,7 +14,7 @@ class SettingsStore {
       ValueNotifier<Color>(Colors.deepPurple);
 
   static final ValueNotifier<Color> backgroundColor =
-      ValueNotifier<Color>(const Color(0xFF0B0F17)); // fondo oscuro suave
+      ValueNotifier<Color>(const Color(0xFF0B0F17));
 
   static const List<Color> accentPalette = [
     Colors.deepPurple,
@@ -53,7 +53,7 @@ class SettingsStore {
         _ => ThemeMode.system,
       };
     } else {
-      themeMode.value = ThemeMode.dark; // default real
+      themeMode.value = ThemeMode.dark;
     }
 
     // Acento
@@ -88,5 +88,51 @@ class SettingsStore {
     backgroundColor.value = color;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kBackground, color.value);
+  }
+
+  // =========================
+  // ✅ BACKUP HELPERS
+  // =========================
+
+  static Map<String, dynamic> snapshot() {
+    final mode = themeMode.value;
+    final modeStr = (mode == ThemeMode.dark)
+        ? 'dark'
+        : (mode == ThemeMode.light)
+            ? 'light'
+            : 'system';
+
+    return {
+      'theme': modeStr,
+      'accent': accentColor.value.value,
+      'background': backgroundColor.value.value,
+    };
+  }
+
+  static Future<void> applySnapshot(Map<String, dynamic> json) async {
+    final themeStr = (json['theme'] ?? 'dark').toString();
+
+    final mode = switch (themeStr) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
+
+    final accentInt = json['accent'];
+    final bgInt = json['background'];
+
+    await setTheme(mode);
+
+    if (accentInt != null) {
+      final v = (accentInt is int)
+          ? accentInt
+          : int.tryParse(accentInt.toString());
+      if (v != null) await setAccent(Color(v));
+    }
+
+    if (bgInt != null) {
+      final v = (bgInt is int) ? bgInt : int.tryParse(bgInt.toString());
+      if (v != null) await setBackground(Color(v));
+    }
   }
 }

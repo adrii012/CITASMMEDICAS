@@ -1,139 +1,137 @@
 import 'package:flutter/material.dart';
 import 'settings_store.dart';
+import 'license_store.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  Widget _colorDot({
-    required Color color,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            width: selected ? 4 : 2,
-            color: selected ? Colors.white : Colors.black12,
-          ),
+  void _openDevPanel(BuildContext context) async {
+    final trialCtrl = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Panel DEV (oculto)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Esto es solo para pruebas.\nLuego lo cambiamos por activación real.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: trialCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Cambiar trial days (ej. 7)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
         ),
-        child: selected
-            ? const Icon(Icons.check, color: Colors.white)
-            : const SizedBox.shrink(),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await LicenseStore.resetTrial();
+              if (context.mounted) Navigator.pop(context);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Trial reseteado ✅')),
+                );
+              }
+            },
+            child: const Text('Reset trial'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await LicenseStore.setUnlocked(true);
+              if (context.mounted) Navigator.pop(context);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Desbloqueado (DEV) ✅')),
+                );
+              }
+            },
+            child: const Text('Desbloquear (DEV)'),
+          ),
+          FilledButton.tonal(
+            onPressed: () async {
+              final v = int.tryParse(trialCtrl.text.trim());
+              if (v != null && v > 0) {
+                await LicenseStore.setTrialDays(v);
+                if (context.mounted) Navigator.pop(context);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Trial days actualizado a $v ✅')),
+                  );
+                }
+              }
+            },
+            child: const Text('Guardar trial'),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Color>(
-      valueListenable: SettingsStore.backgroundColor,
-      builder: (_, bg, __) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        SettingsStore.themeMode,
+        SettingsStore.accentColor,
+        SettingsStore.backgroundColor,
+        LicenseStore.isLocked,
+        LicenseStore.daysLeft,
+        LicenseStore.reason,
+      ]),
+      builder: (_, __) {
+        final locked = LicenseStore.isLocked.value;
+        final days = LicenseStore.daysLeft.value;
+        final reason = LicenseStore.reason.value;
+
         return Scaffold(
-          backgroundColor: bg,
-          appBar: AppBar(title: const Text('Ajustes')),
+          appBar: AppBar(
+            title: GestureDetector(
+              onLongPress: () => _openDevPanel(context),
+              child: const Text('Ajustes'),
+            ),
+          ),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              const Text('Tema',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-
-              ValueListenableBuilder<ThemeMode>(
-                valueListenable: SettingsStore.themeMode,
-                builder: (_, mode, __) {
-                  return Column(
-                    children: [
-                      RadioListTile<ThemeMode>(
-                        value: ThemeMode.dark,
-                        groupValue: mode,
-                        title: const Text('Oscuro (default)'),
-                        onChanged: (v) => SettingsStore.setTheme(v!),
-                      ),
-                      RadioListTile<ThemeMode>(
-                        value: ThemeMode.light,
-                        groupValue: mode,
-                        title: const Text('Claro'),
-                        onChanged: (v) => SettingsStore.setTheme(v!),
-                      ),
-                      RadioListTile<ThemeMode>(
-                        value: ThemeMode.system,
-                        groupValue: mode,
-                        title: const Text('Sistema'),
-                        onChanged: (v) => SettingsStore.setTheme(v!),
-                      ),
-                    ],
-                  );
-                },
+              Card(
+                child: ListTile(
+                  leading: Icon(locked ? Icons.lock : Icons.verified),
+                  title: Text(locked ? 'Licencia: BLOQUEADA' : 'Licencia: ACTIVA'),
+                  subtitle: Text(
+                    'Motivo/estado: $reason\nDías restantes: $days',
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Revalidar',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: () async => LicenseStore.validar(),
+                  ),
+                ),
               ),
+              const SizedBox(height: 12),
 
-              const Divider(height: 32),
-
-              const Text('Color acento (botones)',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-
-              ValueListenableBuilder<Color>(
-                valueListenable: SettingsStore.accentColor,
-                builder: (_, selected, __) {
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: SettingsStore.accentPalette.map((c) {
-                      return _colorDot(
-                        color: c,
-                        selected: c.value == selected.value,
-                        onTap: () => SettingsStore.setAccent(c),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-
-              const Divider(height: 32),
-
-              const Text('Fondo (pantallas)',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-
-              ValueListenableBuilder<Color>(
-                valueListenable: SettingsStore.backgroundColor,
-                builder: (_, selected, __) {
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: SettingsStore.backgroundPalette.map((c) {
-                      return _colorDot(
-                        color: c,
-                        selected: c.value == selected.value,
-                        onTap: () => SettingsStore.setBackground(c),
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 24),
-
-              OutlinedButton.icon(
-                onPressed: () async {
-                  await SettingsStore.setTheme(ThemeMode.dark);
-                  await SettingsStore.setAccent(Colors.deepPurple);
-                  await SettingsStore.setBackground(const Color(0xFF0B0F17));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Ajustes restaurados')),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.restart_alt),
-                label: const Text('Restaurar por defecto'),
+              // Aquí puedes dejar tu UI real de colores/tema.
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.palette),
+                  title: const Text('Tema / Colores'),
+                  subtitle: Text(
+                    'Tema: ${SettingsStore.themeMode.value.name}\n'
+                    'Acento: ${SettingsStore.accentColor.value.value}\n'
+                    'Fondo: ${SettingsStore.backgroundColor.value.value}',
+                  ),
+                ),
               ),
             ],
           ),

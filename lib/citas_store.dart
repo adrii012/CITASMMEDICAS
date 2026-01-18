@@ -16,6 +16,31 @@ class CitasStore {
     if (idx == -1) return;
     citas[idx].estado = estado;
   }
+
+  // ✅ NUEVO: Entrada / Salida
+  static void marcarEntrada(String id) {
+    final idx = citas.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+    citas[idx].entradaIso = DateTime.now().toIso8601String();
+  }
+
+  static void marcarSalida(String id) {
+    final idx = citas.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+    citas[idx].salidaIso = DateTime.now().toIso8601String();
+  }
+
+  static void limpiarEntrada(String id) {
+    final idx = citas.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+    citas[idx].entradaIso = '';
+  }
+
+  static void limpiarSalida(String id) {
+    final idx = citas.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+    citas[idx].salidaIso = '';
+  }
 }
 
 enum EstadoCita { pendiente, realizada, cancelada }
@@ -33,8 +58,13 @@ class Cita {
   EstadoCita estado;
   String notas;
 
-  /// ✅ NUEVO: duración de consulta en minutos (para estadísticas reales)
+  /// ✅ duración de consulta en minutos
   int duracionMin;
+
+  /// ✅ NUEVO: check-in / check-out
+  /// ISO string o '' si no existe
+  String entradaIso;
+  String salidaIso;
 
   Cita({
     required this.id,
@@ -43,7 +73,9 @@ class Cita {
     required this.estado,
     required this.notas,
     this.pacienteId,
-    this.duracionMin = 30, // default
+    this.duracionMin = 30,
+    this.entradaIso = '',
+    this.salidaIso = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -54,6 +86,8 @@ class Cita {
         'estado': estado.name,
         'notas': notas,
         'duracionMin': duracionMin,
+        'entradaIso': entradaIso,
+        'salidaIso': salidaIso,
       };
 
   static Cita fromJson(Map<String, dynamic> json) {
@@ -78,6 +112,10 @@ class Cita {
       estado: estado,
       notas: (json['notas'] ?? '').toString(),
       duracionMin: duracion,
+
+      // ✅ NUEVO (compat con backups viejos)
+      entradaIso: (json['entradaIso'] ?? '').toString(),
+      salidaIso: (json['salidaIso'] ?? '').toString(),
     );
   }
 }

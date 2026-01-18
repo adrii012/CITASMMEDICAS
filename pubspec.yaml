@@ -13,8 +13,11 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
-  # Firebase (solo core, como lo tienes)
-  firebase_core: ^3.0.0
+  # Firebase
+  firebase_core: ^4.3.0
+
+  # Firestore (licencias en nube)
+  cloud_firestore: ^6.1.1
 
   # Persistencia local
   shared_preferences: ^2.2.3
@@ -34,7 +37,7 @@ dependencies:
   # Calendario
   table_calendar: ^3.1.2
 
-  # ✅ Para abrir WhatsApp / mail / links
+  # Abrir WhatsApp / mail / links
   url_launcher: ^6.3.0
 
 dev_dependencies:

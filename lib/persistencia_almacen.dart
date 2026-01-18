@@ -1,46 +1,47 @@
-// lib/persistencia.dart
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'citas_store.dart';
 import 'auth_store.dart';
+import 'almacen_store.dart';
+import 'almacen_item.dart';
 
-class PersistenciaCitas {
-  // ✅ Si quieres que cada usuario tenga sus propias citas dentro de la clínica:
+class PersistenciaAlmacen {
   static const bool separarPorUsuario = true;
 
   static String _keyFor(String clinicId, String? userId) {
     if (separarPorUsuario) {
       final uid = (userId == null || userId.trim().isEmpty) ? 'anon' : userId.trim();
-      return 'citas_guardadas_v2_${clinicId}_$uid';
+      return 'almacen_guardado_v1_${clinicId}_$uid';
     }
-    return 'citas_guardadas_v2_$clinicId';
+    return 'almacen_guardado_v1_$clinicId';
   }
 
   static Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value; // no truena si aun no hay (pero en tu app ya habrá)
-    final data = prefs.getString(_keyFor(clinicId, uid));
+    final uid = AuthStore.userId.value;
 
-    // ✅ si no existe, deja lista vacía
-    if (data == null || data.trim().isEmpty) {
-      CitasStore.citas.clear();
+    final raw = prefs.getString(_keyFor(clinicId, uid));
+
+    if (raw == null || raw.trim().isEmpty) {
+      AlmacenStore.clear();
       return;
     }
 
     try {
-      final decoded = jsonDecode(data);
+      final decoded = jsonDecode(raw);
       if (decoded is List) {
-        CitasStore.citas
+        AlmacenStore.items
           ..clear()
           ..addAll(
-            decoded.map((e) => Cita.fromJson(Map<String, dynamic>.from(e))),
+            decoded.map((e) => AlmacenItem.fromJson(Map<String, dynamic>.from(e))),
           );
+        AlmacenStore.recomputeLowStock();
+      } else {
+        AlmacenStore.clear();
       }
     } catch (_) {
-      // no crashear
-      CitasStore.citas.clear();
+      AlmacenStore.clear();
     }
   }
 
@@ -49,8 +50,9 @@ class PersistenciaCitas {
     final clinicId = AuthStore.requireClinicId();
     final uid = AuthStore.userId.value;
 
-    final list = CitasStore.citas.map((c) => c.toJson()).toList();
+    final list = AlmacenStore.items.map((x) => x.toJson()).toList();
     await prefs.setString(_keyFor(clinicId, uid), jsonEncode(list));
+    AlmacenStore.recomputeLowStock();
   }
 
   static Future<void> limpiarTodo() async {
@@ -59,11 +61,6 @@ class PersistenciaCitas {
     final uid = AuthStore.userId.value;
 
     await prefs.remove(_keyFor(clinicId, uid));
-    CitasStore.citas.clear();
-  }
-
-  /// ✅ Útil si cambias de usuario sin reiniciar app
-  static Future<void> recargarPorSesionActual() async {
-    await cargar();
+    AlmacenStore.clear();
   }
 }
