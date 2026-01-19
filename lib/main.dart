@@ -32,28 +32,145 @@ import 'package:citas_medicas/login_screen.dart' as auth;
 
 import 'package:citas_medicas/auth_store.dart';
 
-// ✅ NUEVO: Historias clínicas
+// ✅ Historias clínicas
 import 'package:citas_medicas/historias_screen.dart';
 import 'package:citas_medicas/persistencia_historias.dart';
 import 'package:citas_medicas/historias_store.dart';
 
-// ✅ NUEVO: Licencia remota (Firestore)
+// ✅ Licencia remota (Firestore)
 import 'package:citas_medicas/remote_license_service.dart';
 
-void main() async {
+void main() {
+  // ✅ CLAVE en Web: NO esperar init antes de pintar algo
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const AppBoot());
+}
 
-  await SettingsStore.cargar();
+/// ✅ Arranca UI YA, y mientras tanto inicializa todo en segundo plano
+class AppBoot extends StatefulWidget {
+  const AppBoot({super.key});
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  @override
+  State<AppBoot> createState() => _AppBootState();
+}
 
-  await Notificaciones.inicializar();
-  await AuthStore.cargar();
-  await LicenseStore.cargar();
+class _AppBootState extends State<AppBoot> {
+  late Future<void> _initFuture;
 
-  runApp(const MyApp());
+  @override
+  void initState() {
+    super.initState();
+    _initFuture = _initAll();
+  }
+
+  Future<void> _initAll() async {
+    // Settings primero (para tema/colores)
+    await SettingsStore.cargar();
+
+    // Firebase
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+
+    // Notificaciones: en Web puede fallar dependiendo del navegador/permisos
+    // Si truena aquí, te deja pantalla negra. Lo blindamos.
+    try {
+      await Notificaciones.inicializar();
+    } catch (_) {
+      // En web o PCs sin permisos, lo ignoramos.
+    }
+
+    await AuthStore.cargar();
+    await LicenseStore.cargar();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _initFuture,
+      builder: (_, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: _BootSplash(),
+          );
+        }
+
+        // Si hubo error real, lo mostramos (mejor que negro)
+        if (snap.hasError) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: _BootError(error: snap.error),
+          );
+        }
+
+        return const MyApp();
+      },
+    );
+  }
+}
+
+class _BootSplash extends StatelessWidget {
+  const _BootSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 34,
+              height: 34,
+              child: CircularProgressIndicator(),
+            ),
+            SizedBox(height: 14),
+            Text('Cargando plataforma…'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BootError extends StatelessWidget {
+  final Object? error;
+  const _BootError({this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 44),
+              const SizedBox(height: 10),
+              const Text(
+                'Error al iniciar la app',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error?.toString() ?? 'Error desconocido',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 14),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const AppBoot()),
+                ),
+                child: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Wrapper para revalidar licencia al volver del fondo
@@ -86,7 +203,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (!AuthStore.isLogged.value) return;
 
     try {
-      // ✅ si un día llega vacío, usa clinic_demo
       final clinicId = AuthStore.requireClinicIdOr('clinic_demo');
       await RemoteLicenseService.syncFromFirestore(clinicId: clinicId);
     } catch (_) {
@@ -424,7 +540,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 'Citas: $totalCitas • Pacientes: $totalPac • Almacén: $totalItems • Historias: $totalHistorias',
                 textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 10),
 
               // ✅ útil: ver estado de licencia en Home (opcional)
