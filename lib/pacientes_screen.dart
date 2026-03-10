@@ -1,15 +1,18 @@
 // lib/pacientes_screen.dart
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'pacientes_store.dart';
-import 'persistencia_pacientes.dart';
 import 'paciente.dart';
+import 'pacientes_store.dart';
 import 'citas_store.dart';
 
-// ✅ NUEVO
+import 'auth_store.dart';
+import 'fire_patients.dart';
+
+// Historias (por ahora siguen local)
 import 'historias_screen.dart';
 import 'historias_store.dart';
-import 'persistencia_historias.dart'; // ✅ para cargar/refresh
+import 'persistencia_historias.dart';
 
 class PacientesScreen extends StatefulWidget {
   const PacientesScreen({super.key});
@@ -31,7 +34,6 @@ class _PacientesScreenState extends State<PacientesScreen> {
     if (_loadingHistorias) return;
     _loadingHistorias = true;
     try {
-      // ✅ asegura que HistoriasStore.historias tenga datos antes de contar
       await PersistenciaHistorias.cargar();
     } catch (_) {
       // no crashear
@@ -62,8 +64,7 @@ class _PacientesScreenState extends State<PacientesScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: telCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Teléfono (opcional)'),
+                decoration: const InputDecoration(labelText: 'Teléfono (opcional)'),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
               ),
@@ -81,7 +82,7 @@ class _PacientesScreenState extends State<PacientesScreen> {
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancelar'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Guardar'),
           ),
@@ -100,22 +101,32 @@ class _PacientesScreenState extends State<PacientesScreen> {
       return;
     }
 
-    PacientesStore.pacientes.add(
-      Paciente(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        nombre: nombre,
-        telefono: telCtrl.text.trim(),
-        notas: notasCtrl.text.trim(),
-      ),
-    );
+    final clinicId = AuthStore.requireClinicId();
+    final uid = AuthStore.uid.value ?? '';
+    final email = AuthStore.email.value ?? '';
 
-    await PersistenciaPacientes.guardar();
+    try {
+      await FirePatients.create(
+        clinicId: clinicId,
+        name: nombre,
+        phone: telCtrl.text.trim(),
+        notes: notasCtrl.text.trim(),
+        createdByUid: uid.isEmpty ? 'unknown' : uid,
+        createdByEmail: email,
+      );
 
-    if (!mounted) return;
-    setState(() {});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paciente guardado ✅')),
+      );
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar (Firestore): ${e.code}')),
+      );
+    }
   }
 
-  // ✅ abrir historias de un paciente
   Future<void> _verHistoriasPaciente(Paciente p) async {
     await Navigator.push(
       context,
@@ -127,13 +138,22 @@ class _PacientesScreenState extends State<PacientesScreen> {
       ),
     );
 
-    // ✅ al volver, recargar historias para que el contador se actualice SIEMPRE
     await _cargarHistoriasParaContadores();
+  }
+
+  // Map Firestore -> Paciente
+  Paciente _mapToPaciente(Map<String, dynamic> m) {
+    return Paciente(
+      id: (m['id'] ?? '').toString(),
+      nombre: (m['name'] ?? '').toString(),
+      telefono: (m['phone'] ?? '').toString(),
+      notas: (m['notes'] ?? '').toString(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final pacientes = PacientesStore.pacientes;
+    final clinicId = AuthStore.requireClinicId();
 
     return Scaffold(
       appBar: AppBar(
@@ -151,47 +171,64 @@ class _PacientesScreenState extends State<PacientesScreen> {
           ),
         ],
       ),
-      body: pacientes.isEmpty
-          ? const Center(child: Text('No hay pacientes'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: pacientes.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (_, i) {
-                final p = pacientes[i];
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: FirePatients.streamAll(clinicId: clinicId),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('Error: ${snap.error}'));
+          }
 
-                final citasDePaciente =
-                    CitasStore.citas.where((c) => c.pacienteId == p.id).length;
+          final rows = snap.data ?? const [];
+          final pacientes = rows.map(_mapToPaciente).where((p) => p.id.isNotEmpty).toList();
 
-                // ✅ contar historias por paciente (store ya cargado)
-                final historiasDePaciente = HistoriasStore.historias
-                    .where((h) => h.pacienteId == p.id)
-                    .length;
+          // ✅ Mantener el store local actualizado para que otras pantallas (citas/historias) sigan funcionando
+          PacientesStore.pacientes
+            ..clear()
+            ..addAll(pacientes);
 
-                return Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.person)),
-                    title: Text(p.nombre),
-                    subtitle: Text(
-                      'Tel: ${p.telefono.isEmpty ? "-" : p.telefono}\n'
-                      'Citas: $citasDePaciente • Historias: $historiasDePaciente',
-                    ),
-                    isThreeLine: true,
-                    trailing: Wrap(
-                      spacing: 4,
-                      children: [
-                        IconButton(
-                          tooltip: 'Historias clínicas',
-                          icon: const Icon(Icons.folder_shared),
-                          onPressed: () => _verHistoriasPaciente(p),
-                        ),
-                      ],
-                    ),
-                    onTap: () => _verHistoriasPaciente(p),
+          if (pacientes.isEmpty) {
+            return const Center(child: Text('No hay pacientes'));
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: pacientes.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (_, i) {
+              final p = pacientes[i];
+
+              final citasDePaciente = CitasStore.citas.where((c) => c.pacienteId == p.id).length;
+              final historiasDePaciente = HistoriasStore.historias.where((h) => h.pacienteId == p.id).length;
+
+              return Card(
+                child: ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text(p.nombre),
+                  subtitle: Text(
+                    'Tel: ${p.telefono.isEmpty ? "-" : p.telefono}\n'
+                    'Citas: $citasDePaciente • Historias: $historiasDePaciente',
                   ),
-                );
-              },
-            ),
+                  isThreeLine: true,
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      IconButton(
+                        tooltip: 'Historias clínicas',
+                        icon: const Icon(Icons.folder_shared),
+                        onPressed: () => _verHistoriasPaciente(p),
+                      ),
+                    ],
+                  ),
+                  onTap: () => _verHistoriasPaciente(p),
+                ),
+              );
+            },
+          );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _nuevoPaciente,
         child: const Icon(Icons.add),

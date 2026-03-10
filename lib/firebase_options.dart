@@ -85,4 +85,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'citas-medicas-64396.firebasestorage.app',
     measurementId: 'G-F8RYWK1G48',
   );
+
 }

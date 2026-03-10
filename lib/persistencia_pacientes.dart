@@ -7,31 +7,20 @@ import 'paciente.dart';
 import 'auth_store.dart';
 
 class PersistenciaPacientes {
-  // ✅ cada usuario tiene sus propios pacientes dentro de la clínica
-  static const bool separarPorUsuario = true;
-
-  static String _keyFor(String clinicId, String? userId) {
-    if (separarPorUsuario) {
-      final uid = (userId == null || userId.trim().isEmpty) ? 'anon' : userId.trim();
-      return 'pacientes_guardados_v2_${clinicId}_$uid';
-    }
-    return 'pacientes_guardados_v2_$clinicId';
-  }
+  static String _keyFor(String clinicId) => 'pacientes_cache_v5_$clinicId';
 
   static Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value;
 
-    final data = prefs.getString(_keyFor(clinicId, uid));
-
-    if (data == null || data.trim().isEmpty) {
+    final raw = prefs.getString(_keyFor(clinicId));
+    if (raw == null || raw.trim().isEmpty) {
       PacientesStore.pacientes.clear();
       return;
     }
 
     try {
-      final decoded = jsonDecode(data);
+      final decoded = jsonDecode(raw);
       if (decoded is List) {
         PacientesStore.pacientes
           ..clear()
@@ -49,22 +38,16 @@ class PersistenciaPacientes {
   static Future<void> guardar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value;
-
     final list = PacientesStore.pacientes.map((p) => p.toJson()).toList();
-    await prefs.setString(_keyFor(clinicId, uid), jsonEncode(list));
+    await prefs.setString(_keyFor(clinicId), jsonEncode(list));
   }
 
   static Future<void> limpiarTodo() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value;
-
-    await prefs.remove(_keyFor(clinicId, uid));
+    await prefs.remove(_keyFor(clinicId));
     PacientesStore.pacientes.clear();
   }
 
-  static Future<void> recargarPorSesionActual() async {
-    await cargar();
-  }
+  static Future<void> recargarPorSesionActual() async => cargar();
 }

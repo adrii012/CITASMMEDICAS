@@ -1,52 +1,63 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
+
+// Firebase
 import 'package:firebase_core/firebase_core.dart';
-
-import 'package:citas_medicas/firebase_options.dart';
-
-// Persistencias (alias)
-import 'package:citas_medicas/persistencia.dart' as pcitas;
-import 'package:citas_medicas/persistencia_pacientes.dart' as ppac;
-import 'package:citas_medicas/persistencia_almacen.dart' as palmacen;
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'firebase_options.dart';
 
 import 'package:citas_medicas/notificaciones.dart';
+import 'package:citas_medicas/auth_store.dart';
+import 'package:citas_medicas/settings_store.dart';
+import 'package:citas_medicas/fire_clinic_users.dart';
+
+// Stores/data
 import 'package:citas_medicas/citas_store.dart';
 import 'package:citas_medicas/pacientes_store.dart';
 import 'package:citas_medicas/almacen_store.dart';
+import 'package:citas_medicas/historias_store.dart';
 
+// Persistencias locales (si todavía las usas en partes)
+import 'package:citas_medicas/persistencia.dart' as pcitas;
+import 'package:citas_medicas/persistencia_pacientes.dart' as ppac;
+import 'package:citas_medicas/persistencia_almacen.dart' as palmacen;
+import 'package:citas_medicas/persistencia_historias.dart';
+
+// Screens
+import 'package:citas_medicas/login_screen.dart' as auth;
+import 'package:citas_medicas/settings_screen.dart';
 import 'package:citas_medicas/agendar_cita.dart';
 import 'package:citas_medicas/ver_citas.dart';
 import 'package:citas_medicas/calendario_screen.dart';
 import 'package:citas_medicas/pacientes_screen.dart';
 import 'package:citas_medicas/almacen_screen.dart';
-
-import 'package:citas_medicas/settings_store.dart';
-import 'package:citas_medicas/settings_screen.dart';
+import 'package:citas_medicas/historias_screen.dart';
 import 'package:citas_medicas/estadisticas_screen.dart';
 import 'package:citas_medicas/respaldos_screen.dart';
 
-import 'package:citas_medicas/license_store.dart';
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+}
 
-// 👇 Import con alias para evitar choques de nombres (blindaje total)
-import 'package:citas_medicas/locked_screen.dart' as locked;
-import 'package:citas_medicas/login_screen.dart' as auth;
-
-import 'package:citas_medicas/auth_store.dart';
-
-// ✅ Historias clínicas
-import 'package:citas_medicas/historias_screen.dart';
-import 'package:citas_medicas/persistencia_historias.dart';
-import 'package:citas_medicas/historias_store.dart';
-
-// ✅ Licencia remota (Firestore)
-import 'package:citas_medicas/remote_license_service.dart';
-
-void main() {
-  // ✅ CLAVE en Web: NO esperar init antes de pintar algo
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // ✅ NUEVO: handler FCM en background
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   runApp(const AppBoot());
 }
 
-/// ✅ Arranca UI YA, y mientras tanto inicializa todo en segundo plano
+/// ===================
+/// BOOT
+/// ===================
 class AppBoot extends StatefulWidget {
   const AppBoot({super.key});
 
@@ -63,25 +74,51 @@ class _AppBootState extends State<AppBoot> {
     _initFuture = _initAll();
   }
 
-  Future<void> _initAll() async {
-    // Settings primero (para tema/colores)
-    await SettingsStore.cargar();
+  Future<void> _initMessaging() async {
+    final messaging = FirebaseMessaging.instance;
 
-    // Firebase
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    await messaging.requestPermission();
 
-    // Notificaciones: en Web puede fallar dependiendo del navegador/permisos
-    // Si truena aquí, te deja pantalla negra. Lo blindamos.
-    try {
-      await Notificaciones.inicializar();
-    } catch (_) {
-      // En web o PCs sin permisos, lo ignoramos.
+    final currentClinicId = AuthStore.clinicId.value;
+    final currentUid = AuthStore.uid.value;
+
+    if (currentClinicId != null && currentUid != null) {
+      final token = await messaging.getToken();
+      if (token != null && token.trim().isNotEmpty) {
+        await FireClinicUsers.addFcmToken(
+          clinicId: currentClinicId,
+          uid: currentUid,
+          token: token,
+        );
+      }
     }
 
+    FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
+      final clinicId = AuthStore.clinicId.value;
+      final uid = AuthStore.uid.value;
+      if (clinicId == null || uid == null) return;
+
+      await FireClinicUsers.addFcmToken(
+        clinicId: clinicId,
+        uid: uid,
+        token: token,
+      );
+    });
+  }
+
+  Future<void> _initAll() async {
+    await SettingsStore.cargar();
+
+    try {
+      await Notificaciones.inicializar();
+    } catch (_) {}
+
     await AuthStore.cargar();
-    await LicenseStore.cargar();
+
+    // ✅ NUEVO: inicializar FCM
+    try {
+      await _initMessaging();
+    } catch (_) {}
   }
 
   @override
@@ -92,15 +129,9 @@ class _AppBootState extends State<AppBoot> {
         if (snap.connectionState != ConnectionState.done) {
           return const MaterialApp(
             debugShowCheckedModeBanner: false,
-            home: _BootSplash(),
-          );
-        }
-
-        // Si hubo error real, lo mostramos (mejor que negro)
-        if (snap.hasError) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            home: _BootError(error: snap.error),
+            home: Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
           );
         }
 
@@ -110,111 +141,61 @@ class _AppBootState extends State<AppBoot> {
   }
 }
 
-class _BootSplash extends StatelessWidget {
-  const _BootSplash();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 34,
-              height: 34,
-              child: CircularProgressIndicator(),
-            ),
-            SizedBox(height: 14),
-            Text('Cargando plataforma…'),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BootError extends StatelessWidget {
-  final Object? error;
-  const _BootError({this.error});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 44),
-              const SizedBox(height: 10),
-              const Text(
-                'Error al iniciar la app',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                error?.toString() ?? 'Error desconocido',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 14),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const AppBoot()),
-                ),
-                child: const Text('Reintentar'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Wrapper para revalidar licencia al volver del fondo
-class MyApp extends StatefulWidget {
+/// ===================
+/// APP
+/// ===================
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
+  ThemeData _buildTheme({
+    required Brightness brightness,
+    required Color accent,
+    required Color bg,
+  }) {
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: accent,
+        brightness: brightness,
+      ),
+      scaffoldBackgroundColor: bg,
 
-class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
+      iconTheme: IconThemeData(color: accent, size: 22),
+      appBarTheme: const AppBarTheme(centerTitle: true),
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+          elevation: 2,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+      ),
 
-  // ✅ valida remoto si hay sesión, si no, usa local
-  Future<void> _validarLicencia() async {
-    // Siempre refresca local (trial fallback)
-    await LicenseStore.validar();
-
-    // Si NO hay login, no hacemos Firestore
-    if (!AuthStore.isLogged.value) return;
-
-    try {
-      final clinicId = AuthStore.requireClinicIdOr('clinic_demo');
-      await RemoteLicenseService.syncFromFirestore(clinicId: clinicId);
-    } catch (_) {
-      // nos quedamos con local
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _validarLicencia();
-    }
+      cardTheme: CardThemeData(
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
   }
 
   @override
@@ -230,31 +211,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         final accent = SettingsStore.accentColor.value;
         final bg = SettingsStore.backgroundColor.value;
 
-        final light = ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: accent,
-            brightness: Brightness.light,
-          ),
-          brightness: Brightness.light,
-          scaffoldBackgroundColor: bg,
-        );
-
-        final dark = ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: accent,
-            brightness: Brightness.dark,
-          ),
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: bg,
-        );
-
         return MaterialApp(
           title: 'Citas Médicas',
           debugShowCheckedModeBanner: false,
-          theme: light,
-          darkTheme: dark,
+          theme: _buildTheme(brightness: Brightness.light, accent: accent, bg: bg),
+          darkTheme: _buildTheme(brightness: Brightness.dark, accent: accent, bg: bg),
           themeMode: mode,
           home: const SessionGate(),
         );
@@ -263,7 +224,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 }
 
-/// Decide: Login vs App
+/// ===================
+/// SESSION GATE (SOLO AUTH)
+/// ===================
 class SessionGate extends StatefulWidget {
   const SessionGate({super.key});
 
@@ -272,105 +235,72 @@ class SessionGate extends StatefulWidget {
 }
 
 class _SessionGateState extends State<SessionGate> {
-  Future<void>? _loadAfterLoginFuture;
+  Future<void>? _loadFuture;
 
   @override
   void initState() {
     super.initState();
-    _syncFuture();
-
+    _sync();
     AuthStore.isLogged.addListener(_onAuthChanged);
-    LicenseStore.isLocked.addListener(_onLicenseChanged);
   }
 
   @override
   void dispose() {
     AuthStore.isLogged.removeListener(_onAuthChanged);
-    LicenseStore.isLocked.removeListener(_onLicenseChanged);
     super.dispose();
   }
 
   void _onAuthChanged() {
-    _syncFuture();
+    _sync();
     if (mounted) setState(() {});
   }
 
-  void _onLicenseChanged() {
-    if (mounted) setState(() {});
-  }
-
-  void _syncFuture() {
+  void _sync() {
     if (AuthStore.isLogged.value) {
-      _loadAfterLoginFuture = _loadClinicData();
+      _loadFuture = _loadClinicData();
     } else {
-      _loadAfterLoginFuture = null;
-
-      // ✅ detener listener remoto al cerrar sesión
-      RemoteLicenseService.stopListener();
-
+      _loadFuture = null;
       CitasStore.citas.clear();
       PacientesStore.pacientes.clear();
       AlmacenStore.clear();
-
-      // ✅ limpiar historias en memoria al cerrar sesión
       HistoriasStore.clear();
-
-      // ✅ opcional: limpiar info remota (solo UI)
-      LicenseStore.clearRemoteInfo();
     }
   }
 
   Future<void> _loadClinicData() async {
+    // Si sigues usando partes locales, carga aquí
     await ppac.PersistenciaPacientes.cargar();
     await pcitas.PersistenciaCitas.cargar();
     await palmacen.PersistenciaAlmacen.cargar();
-
     AlmacenStore.recomputeLowStock();
-
     await PersistenciaHistorias.cargar();
-
-    // ✅ primero local (trial)
-    await LicenseStore.validar();
-
-    // ✅ luego arrancar listener remoto EN VIVO
-    try {
-      final clinicId = AuthStore.requireClinicIdOr('clinic_demo');
-      await RemoteLicenseService.startListener(clinicId: clinicId);
-    } catch (_) {
-      // si falla, nos quedamos con local
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final logged = AuthStore.isLogged.value;
-
-    if (!logged) {
+    if (!AuthStore.isLogged.value) {
       return const auth.LoginScreen();
     }
 
     return FutureBuilder<void>(
-      future: _loadAfterLoginFuture,
+      future: _loadFuture,
       builder: (_, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(),
-              ),
-            ),
+            body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        final lockedNow = LicenseStore.isLocked.value;
-        return lockedNow ? const locked.LockedScreen() : const HomeScreen();
+        // ✅ SIN BLOQUEO LOCAL: SOLO FIREBASE RULES DECIDEN
+        return const HomeScreen();
       },
     );
   }
 }
 
+/// ===================
+/// HOME
+/// ===================
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -379,84 +309,73 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  Future<void> _irAAgendar() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AgendarCitaScreen()),
-    );
-    if (result == true) setState(() {});
-  }
-
-  Future<void> _irAVerCitas() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const VerCitasScreen()),
-    );
-    setState(() {});
-  }
-
-  Future<void> _irACalendario() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const CalendarioScreen()),
-    );
-    setState(() {});
-  }
-
-  Future<void> _irAPacientes() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const PacientesScreen()),
-    );
-    setState(() {});
-  }
-
-  Future<void> _irAEstadisticas() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const EstadisticasScreen()),
-    );
-  }
-
-  Future<void> _irARespaldos() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const RespaldosScreen()),
-    );
-  }
-
-  Future<void> _irAAlmacen() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AlmacenScreen()),
-    );
-    setState(() {});
-  }
-
-  Future<void> _irAHistorias() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const HistoriasScreen()),
-    );
-    setState(() {});
-  }
-
-  Future<void> _irAAjustes() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
-    setState(() {});
+  Future<void> _go(Widget screen) async {
+    final r = await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    if (mounted) setState(() {});
+    if (r == true && mounted) setState(() {});
   }
 
   Future<void> _logout() async {
-    // ✅ parar listener remoto antes de salir
-    RemoteLicenseService.stopListener();
-
     await AuthStore.logout();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Sesión cerrada ✅')),
+    );
+  }
+
+  Widget _brandMark() {
+    final accent = SettingsStore.accentColor.value;
+    return Center(
+      child: Container(
+        width: 86,
+        height: 86,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [accent.withOpacity(0.90), accent.withOpacity(0.35)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withOpacity(0.25),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: const Center(
+          child: Icon(Icons.local_hospital_rounded, size: 44, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _btn({
+    required VoidCallback onTap,
+    required IconData icon,
+    required String text,
+    bool primary = false,
+  }) {
+    return SizedBox(
+      width: 340,
+      child: primary
+          ? FilledButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon),
+              label: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(text, textAlign: TextAlign.center),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon),
+              label: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(text, textAlign: TextAlign.center),
+              ),
+            ),
     );
   }
 
@@ -467,54 +386,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final totalItems = AlmacenStore.items.length;
     final totalHistorias = HistoriasStore.historias.length;
 
-    Widget btn({
-      required VoidCallback onTap,
-      required IconData icon,
-      required String text,
-      bool primary = false,
-    }) {
-      final child = Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon),
-          const SizedBox(width: 10),
-          Flexible(child: Text(text, textAlign: TextAlign.center)),
-        ],
-      );
-
-      return SizedBox(
-        width: 320,
-        child: primary
-            ? ElevatedButton(
-                onPressed: onTap,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: child,
-                ),
-              )
-            : OutlinedButton(
-                onPressed: onTap,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: child,
-                ),
-              ),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Citas Médicas'),
-        centerTitle: true,
         actions: [
           IconButton(
             tooltip: 'Ajustes',
-            icon: const Icon(Icons.settings),
-            onPressed: _irAAjustes,
+            icon: const Icon(Icons.settings_rounded),
+            onPressed: () => _go(const SettingsScreen()),
           ),
           IconButton(
             tooltip: 'Cerrar sesión',
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout_rounded),
             onPressed: _logout,
           ),
         ],
@@ -525,101 +408,69 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView(
             shrinkWrap: true,
             children: [
-              const Icon(Icons.calendar_month, size: 80),
+              _brandMark(),
               const SizedBox(height: 12),
               Text(
                 'Bienvenido (${AuthStore.role.value})',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 6),
+              Text('Clínica ID: ${AuthStore.clinicId.value ?? '-'}', textAlign: TextAlign.center),
               const SizedBox(height: 6),
               Text(
                 'Citas: $totalCitas • Pacientes: $totalPac • Almacén: $totalItems • Historias: $totalHistorias',
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 10),
-
-              // ✅ útil: ver estado de licencia en Home (opcional)
-              ValueListenableBuilder<String>(
-                valueListenable: LicenseStore.reason,
-                builder: (_, r, __) => Text(
-                  r,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-
               const SizedBox(height: 18),
 
-              btn(
-                onTap: _irAAgendar,
-                icon: Icons.add,
+              _btn(
+                onTap: () => _go(const AgendarCitaScreen()),
+                icon: Icons.event_available_rounded,
                 text: 'Agendar cita',
                 primary: true,
               ),
               const SizedBox(height: 10),
-
-              btn(
-                onTap: _irAVerCitas,
-                icon: Icons.list_alt,
+              _btn(
+                onTap: () => _go(const VerCitasScreen()),
+                icon: Icons.list_alt_rounded,
                 text: 'Ver mis citas ($totalCitas)',
               ),
               const SizedBox(height: 10),
-
-              btn(
-                onTap: _irACalendario,
-                icon: Icons.calendar_today,
+              _btn(
+                onTap: () => _go(const CalendarioScreen()),
+                icon: Icons.calendar_month_rounded,
                 text: 'Calendario',
               ),
               const SizedBox(height: 10),
-
-              btn(
-                onTap: _irAPacientes,
-                icon: Icons.people,
+              _btn(
+                onTap: () => _go(const PacientesScreen()),
+                icon: Icons.people_alt_rounded,
                 text: 'Pacientes ($totalPac)',
               ),
               const SizedBox(height: 10),
-
-              btn(
-                onTap: _irAHistorias,
-                icon: Icons.description,
+              _btn(
+                onTap: () => _go(const HistoriasScreen()),
+                icon: Icons.medical_information_rounded,
                 text: 'Historias clínicas ($totalHistorias)',
               ),
               const SizedBox(height: 10),
-
-              btn(
-                onTap: _irAEstadisticas,
-                icon: Icons.bar_chart,
+              _btn(
+                onTap: () => _go(const EstadisticasScreen()),
+                icon: Icons.bar_chart_rounded,
                 text: 'Estadísticas',
               ),
               const SizedBox(height: 10),
-
-              btn(
-                onTap: _irARespaldos,
-                icon: Icons.backup,
+              _btn(
+                onTap: () => _go(const RespaldosScreen()),
+                icon: Icons.cloud_upload_rounded,
                 text: 'Respaldos',
               ),
               const SizedBox(height: 10),
-
-              ValueListenableBuilder<int>(
-                valueListenable: AlmacenStore.lowStockCount,
-                builder: (_, low, __) {
-                  final extra = low > 0 ? '  ⚠️ $low bajo' : '';
-                  return btn(
-                    onTap: _irAAlmacen,
-                    icon: Icons.inventory_2,
-                    text: 'Almacén ($totalItems)$extra',
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-
-              btn(
-                onTap: _irAAjustes,
-                icon: Icons.tune,
-                text: 'Ajustes (colores/tema)',
+              _btn(
+                onTap: () => _go(const AlmacenScreen()),
+                icon: Icons.inventory_2_rounded,
+                text: 'Almacén ($totalItems)',
               ),
             ],
           ),

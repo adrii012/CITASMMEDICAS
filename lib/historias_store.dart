@@ -4,17 +4,17 @@ import 'historia_clinica.dart';
 class HistoriasStore {
   static final List<HistoriaClinica> historias = [];
 
-  // ✅ labels para UI
   static const Map<HistoriaTipo, String> tipos = {
-    HistoriaTipo.general: 'Clínica General',
+    HistoriaTipo.general: 'General',
     HistoriaTipo.gine: 'Ginecología',
     HistoriaTipo.trauma: 'Trauma / Ortopedia',
     HistoriaTipo.urgencias: 'Urgencias',
+    HistoriaTipo.odontologia: 'Odontología', // ✅ NUEVO
   };
 
   static List<HistoriaClinica> porPaciente(String pacienteId) {
     final list = historias.where((h) => h.pacienteId == pacienteId).toList();
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt)); // nueva primero
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
   }
 

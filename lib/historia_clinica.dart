@@ -1,5 +1,5 @@
 // lib/historia_clinica.dart
-enum HistoriaTipo { general, gine, trauma, urgencias }
+enum HistoriaTipo { general, gine, trauma, urgencias, odontologia }
 
 class HistoriaClinica {
   String id;
@@ -53,8 +53,7 @@ class HistoriaClinica {
     return HistoriaClinica(
       id: (j['id'] ?? '').toString(),
       pacienteId: (j['pacienteId'] ?? '').toString(),
-      createdAt:
-          DateTime.tryParse((j['createdAt'] ?? '').toString()) ?? DateTime.now(),
+      createdAt: DateTime.tryParse((j['createdAt'] ?? '').toString()) ?? DateTime.now(),
       tipo: tipo,
       secciones: secs,
     );
@@ -135,20 +134,18 @@ class HistoriaClinica {
         break;
 
       case HistoriaTipo.gine:
-        // ✅ Ginecología / Obstetricia básica + completa
         base.addAll({
-          // gine-obs clave
           'g': '',
           'p': '',
           'c': '',
-          'a': '', // abortos
-          'e': '', // ectópicos (si quieres)
+          'a': '',
+          'e': '',
           'fUM': '',
           'fPP': '',
           'edadMenarca': '',
-          'cicloMenstrual': '', // regularidad/duración
+          'cicloMenstrual': '',
           'dismenorrea': '',
-          'irs': '', // inicio de relaciones sexuales
+          'irs': '',
           'parejasSexuales': '',
           'metodoAnticonceptivo': '',
           'its': '',
@@ -159,20 +156,16 @@ class HistoriaClinica {
           'flujo': '',
           'dolorPelvico': '',
           'dispareunia': '',
-          'embarazoActual': '', // si aplica
-          'movimientosFetales': '', // si aplica
-          'contracciones': '', // si aplica
-          'perdidaLiquido': '', // si aplica
+          'embarazoActual': '',
+          'movimientosFetales': '',
+          'contracciones': '',
+          'perdidaLiquido': '',
           'signosAlarma': '',
-
-          // exploración gine
           'exploracionGine': '',
           'especuloscopia': '',
           'tactoBimanual': '',
-          'fondoUterino': '', // obstetricia
-          'fcf': '', // frecuencia cardiaca fetal
-
-          // labs/imagen comunes
+          'fondoUterino': '',
+          'fcf': '',
           'bh': '',
           'ego': '',
           'pruebaEmbarazo': '',
@@ -181,43 +174,33 @@ class HistoriaClinica {
         break;
 
       case HistoriaTipo.trauma:
-        // ✅ Trauma / Ortopedia completa
         base.addAll({
-          // evento
           'mecanismoLesion': '',
           'tiempoEvolucion': '',
           'sitioLesion': '',
-          'dominancia': '', // mano dominante si aplica
+          'dominancia': '',
           'dolorEVA': '',
           'limitacionFuncional': '',
           'deformidad': '',
           'edemaEquimosis': '',
           'heridas': '',
           'sangradoActivo': '',
-
-          // neurovascular
-          'neurovascular': '', // pulsos, llenado capilar, sensibilidad, motor
+          'neurovascular': '',
           'pulsosDistales': '',
           'llenadoCapilar': '',
           'sensibilidad': '',
           'fuerza': '',
           'movilidad': '',
-          'compartimental': '', // datos de síndrome compartimental
-
-          // exploración dirigida
+          'compartimental': '',
           'inspeccion': '',
           'palpacion': '',
           'rangoMov': '',
           'pruebasEspeciales': '',
-
-          // estudios
           'rxLabs': '',
           'rx': '',
           'tac': '',
           'usg': '',
           'rm': '',
-
-          // manejo
           'analgesia': '',
           'reduccion': '',
           'inmovilizacion': '',
@@ -233,26 +216,18 @@ class HistoriaClinica {
         break;
 
       case HistoriaTipo.urgencias:
-        // ✅ Urgencias completa (triage/ABCDE)
         base.addAll({
-          // triage y motivo
           'triage': '',
           'prioridad': '',
-
-          // ABCDE
           'aViaAerea': '',
           'bRespiracion': '',
           'cCirculacion': '',
           'dNeurologico': '',
           'eExposicion': '',
-
-          // neurológico
           'glasgow': '',
           'pupilas': '',
           'deficitFocal': '',
           'convulsiones': '',
-
-          // respiratorio/cardiovascular
           'dolorToracico': '',
           'disnea': '',
           'tos': '',
@@ -260,42 +235,59 @@ class HistoriaClinica {
           'estertores': '',
           'edema': '',
           'perfusión': '',
-
-          // GI/otros
           'dolorAbdominal': '',
           'vomito': '',
           'diarrea': '',
           'diuresis': '',
-
-          // antecedentes urgencias
           'ultimoAlimento': '',
           'eventosPrevios': '',
           'riesgoTrombotico': '',
-
-          // intervenciones
           'intervenciones': '',
           'liquidosIV': '',
           'oxigeno': '',
           'medsAdministrados': '',
           'procedimientos': '',
-
-          // estudios urgencias
           'estudiosUrgencias': '',
           'ekg': '',
           'gases': '',
           'labs': '',
           'imagen': '',
-
-          // destino
           'respuestaTratamiento': '',
-          'disposicion': '', // alta/observación/ingreso/referencia
+          'disposicion': '',
           'criteriosAlta': '',
           'signosAlarma': '',
         });
         break;
+
+      case HistoriaTipo.odontologia:
+        // ✅ ODONTOLOGÍA (plantilla)
+        base.addAll({
+          'motivoConsultaDental': '',
+          'dolorEVA': '',
+          'pieza': '',
+
+          'diagnosticoDental': '',
+          'odontograma': '',
+
+          'tejidosBlandos': '',
+          'encias': '',
+          'atm': '',
+          'oclusion': '',
+
+          'procedimientoRealizado': '',
+          'materiales': '',
+          'anestesia': '',
+          'indicacionesPost': '',
+          'receta': '',
+          'proximaCita': '',
+
+          // auxiliares comunes en odonto
+          'rx': '',
+          'planTratamientoDental': '',
+        });
+        break;
     }
 
-    // ✅ Por si el usuario borra llaves sin querer, volvemos a asegurar horas
     base.putIfAbsent('horaEntrada', () => '');
     base.putIfAbsent('horaSalida', () => '');
 

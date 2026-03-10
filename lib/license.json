@@ -1,0 +1,6 @@
+{
+  "clinics": {
+    "CLINIC_001": { "active": true,  "until": "2026-02-15", "reason": "Plan mensual activo ✅" },
+    "CLINIC_ABC": { "active": false, "until": "2026-01-01", "reason": "Vencido ❌" }
+  }
+}

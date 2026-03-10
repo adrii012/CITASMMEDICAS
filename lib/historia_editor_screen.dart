@@ -31,9 +31,6 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
   void initState() {
     super.initState();
 
-    // 1) Si viene historia directa, úsala
-    // 2) Si viene historiaId, intenta cargar de Store
-    // 3) Si no existe, usa initial
     final id = widget.historia?.id ?? widget.historiaId ?? widget.initial?.id;
 
     HistoriaClinica? existing;
@@ -43,35 +40,39 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
 
     _h = existing ?? widget.historia ?? widget.initial ?? _fallbackNueva();
 
-    // Crear controllers por cada key
+    // Controllers por cada key existente
     _h.secciones.forEach((k, v) {
       _ctrls[k] = TextEditingController(text: v);
     });
 
-    // Asegurar horaEntrada/horaSalida (si por algo no venían)
-    _ctrls.putIfAbsent(
-      'horaEntrada',
-      () => TextEditingController(text: _h.horaEntrada),
-    );
-    _ctrls.putIfAbsent(
-      'horaSalida',
-      () => TextEditingController(text: _h.horaSalida),
-    );
+    // Asegurar horaEntrada/horaSalida
+    _ctrls.putIfAbsent('horaEntrada', () => TextEditingController(text: _h.horaEntrada));
+    _ctrls.putIfAbsent('horaSalida', () => TextEditingController(text: _h.horaSalida));
 
-    // Asegurar que existan también en el mapa secciones (para que el editor siempre las pinte)
     _h.secciones.putIfAbsent('horaEntrada', () => _h.horaEntrada);
     _h.secciones.putIfAbsent('horaSalida', () => _h.horaSalida);
   }
 
   HistoriaClinica _fallbackNueva() {
-    // Si por algo llegan nulos, no truena: crea una general vacía
     final tipo = HistoriaTipo.general;
     return HistoriaClinica(
       id: 'his_${DateTime.now().microsecondsSinceEpoch}',
       pacienteId: '',
       createdAt: DateTime.now(),
       tipo: tipo,
-      secciones: HistoriaClinica.plantilla(tipo),
+      secciones: <String, String>{
+        'horaEntrada': '',
+        'horaSalida': '',
+        'motivoConsulta': '',
+        'padecimientoActual': '',
+        'signosVitales': '',
+        'exploracionFisica': '',
+        'impresionDiagnostica': '',
+        'plan': '',
+        'tratamiento': '',
+        'indicaciones': '',
+        'notas': '',
+      },
     );
   }
 
@@ -83,7 +84,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
     super.dispose();
   }
 
-  // ✅ Labels completos (incluye llaves base + extendidas)
+  // ✅ Labels (incluye odontología)
   String _pretty(String key) {
     const map = {
       // tiempos
@@ -93,6 +94,15 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       // resumen base
       'motivoConsulta': 'Motivo de consulta',
       'padecimientoActual': 'Padecimiento actual',
+      'inicioEvolucion': 'Inicio / evolución',
+      'localizacion': 'Localización',
+      'intensidad': 'Intensidad',
+      'caracteristicas': 'Características',
+      'factoresAgravantes': 'Factores agravantes',
+      'factoresAtenuantes': 'Factores atenuantes',
+      'sintomasAsociados': 'Síntomas asociados',
+      'tratPrevio': 'Tratamiento previo',
+
       'signosVitales': 'Signos vitales (TA/FC/FR/T/SpO2)',
       'exploracionFisica': 'Exploración física',
       'impresionDiagnostica': 'Impresión diagnóstica',
@@ -116,16 +126,6 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'toxicomanias': 'Toxicomanías',
       'heredofamiliares': 'Heredofamiliares',
       'revisionSistemas': 'Revisión por sistemas',
-
-      // GENERAL extendida
-      'inicioEvolucion': 'Inicio / evolución',
-      'localizacion': 'Localización',
-      'intensidad': 'Intensidad',
-      'caracteristicas': 'Características',
-      'factoresAgravantes': 'Factores agravantes',
-      'factoresAtenuantes': 'Factores atenuantes',
-      'sintomasAsociados': 'Síntomas asociados',
-      'tratPrevio': 'Tratamiento previo',
       'vacunacion': 'Vacunación',
       'tamizajes': 'Tamizajes (PAP/Masto/etc.)',
       'estiloVida': 'Estilo de vida (dieta/ejercicio/sueño)',
@@ -232,6 +232,22 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'respuestaTratamiento': 'Respuesta a tratamiento',
       'disposicion': 'Disposición (alta/obs/ingreso/ref)',
       'criteriosAlta': 'Criterios de alta',
+
+      // ✅ ODONTOLOGÍA
+      'diagnosticoDental': 'Diagnóstico dental',
+      'odontograma': 'Odontograma / piezas',
+      'tejidosBlandos': 'Tejidos blandos',
+      'encias': 'Encías',
+      'atm': 'ATM',
+      'oclusion': 'Oclusión',
+      'procedimientoRealizado': 'Procedimiento realizado',
+      'materiales': 'Materiales',
+      'anestesia': 'Anestesia',
+      'indicacionesPost': 'Indicaciones post-tratamiento',
+      'receta': 'Receta',
+      'proximaCita': 'Próxima cita',
+      'pieza': 'Pieza dental',
+      'motivoConsultaDental': 'Motivo dental (específico)',
     };
 
     return map[key] ?? key;
@@ -252,8 +268,6 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'pronostico',
       'notaEvolucion',
       'notas',
-
-      // antecedentes
       'app',
       'apnp',
       'quirurgicos',
@@ -262,8 +276,6 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'toxicomanias',
       'heredofamiliares',
       'revisionSistemas',
-
-      // general
       'caracteristicas',
       'factoresAgravantes',
       'factoresAtenuantes',
@@ -274,7 +286,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'riesgos',
       'planSeguimiento',
 
-      // gine/trauma/urg
+      // Gine/Trauma/Urg
       'its',
       'signosAlarma',
       'exploracionGine',
@@ -306,6 +318,21 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'respuestaTratamiento',
       'disposicion',
       'criteriosAlta',
+
+      // ✅ Odonto
+      'diagnosticoDental',
+      'odontograma',
+      'tejidosBlandos',
+      'encias',
+      'atm',
+      'oclusion',
+      'procedimientoRealizado',
+      'materiales',
+      'anestesia',
+      'indicacionesPost',
+      'receta',
+      'proximaCita',
+      'motivoConsultaDental',
     };
     return multi.contains(key);
   }
@@ -325,8 +352,9 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'glasgow',
       'parejasSexuales',
       'edadMenarca',
+      'pieza', // puede ser num (pero a veces ponen 2.6)
     };
-    if (numeric.contains(key)) return TextInputType.number;
+    if (numeric.contains(key)) return TextInputType.text;
 
     return TextInputType.text;
   }
@@ -362,12 +390,10 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
   }
 
   void _guardar() {
-    // volcar controllers al mapa
     for (final e in _ctrls.entries) {
       _h.secciones[e.key] = e.value.text.trim();
     }
 
-    // asegurar helpers
     _h.horaEntrada = _ctrls['horaEntrada']!.text;
     _h.horaSalida = _ctrls['horaSalida']!.text;
 
@@ -377,7 +403,6 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Define grupos por especialidad (y aseguramos que existan en el mapa)
     final keysHoras = ['horaEntrada', 'horaSalida'];
 
     final keysResumen = [
@@ -523,7 +548,25 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       'criteriosAlta',
     ];
 
-    // asegurar que existan keys principales según tipo (para que el UI siempre muestre “plantilla completa”)
+    // ✅ ODONTO
+    final keysOdonto = [
+      'motivoConsultaDental',
+      'dolorEVA',
+      'pieza',
+      'diagnosticoDental',
+      'odontograma',
+      'tejidosBlandos',
+      'encias',
+      'atm',
+      'oclusion',
+      'procedimientoRealizado',
+      'materiales',
+      'anestesia',
+      'indicacionesPost',
+      'receta',
+      'proximaCita',
+    ];
+
     _ensureKeys(keysHoras);
     _ensureKeys(keysResumen);
     _ensureKeys(keysAntecedentes);
@@ -531,8 +574,8 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
     if (_h.tipo == HistoriaTipo.gine) _ensureKeys(keysGine);
     if (_h.tipo == HistoriaTipo.trauma) _ensureKeys(keysTrauma);
     if (_h.tipo == HistoriaTipo.urgencias) _ensureKeys(keysUrg);
+    if (_h.tipo == HistoriaTipo.odontologia) _ensureKeys(keysOdonto);
 
-    // detectar “extras” (llaves que existan y no caigan en ningún grupo)
     final grouped = <String>{
       ...keysHoras,
       ...keysResumen,
@@ -540,6 +583,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
       ...keysGine,
       ...keysTrauma,
       ...keysUrg,
+      ...keysOdonto,
     };
 
     final extras = _h.secciones.keys.where((k) => !grouped.contains(k)).toList();
@@ -564,10 +608,9 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
           ),
           const SizedBox(height: 12),
 
-          // ✅ Horas siempre arriba (sin colapsar)
+          // Horas siempre arriba
           ...keysHoras.map(_field),
 
-          // ✅ Sección Resumen
           Card(
             child: ExpansionTile(
               initiallyExpanded: true,
@@ -577,16 +620,13 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: Column(
-                    children: keysResumen.map(_field).toList(),
-                  ),
+                  child: Column(children: keysResumen.map(_field).toList()),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 10),
 
-          // ✅ Antecedentes
           Card(
             child: ExpansionTile(
               initiallyExpanded: false,
@@ -596,16 +636,31 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: Column(
-                    children: keysAntecedentes.map(_field).toList(),
-                  ),
+                  child: Column(children: keysAntecedentes.map(_field).toList()),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 10),
 
-          // ✅ Plantilla por especialidad
+          if (_h.tipo == HistoriaTipo.odontologia) ...[
+            Card(
+              child: ExpansionTile(
+                initiallyExpanded: true,
+                leading: const Icon(Icons.medical_information),
+                title: const Text('Odontología'),
+                subtitle: const Text('Pieza, diagnóstico, procedimiento, indicaciones'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    child: Column(children: keysOdonto.map(_field).toList()),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+
           if (_h.tipo == HistoriaTipo.gine) ...[
             Card(
               child: ExpansionTile(
@@ -616,9 +671,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    child: Column(
-                      children: keysGine.map(_field).toList(),
-                    ),
+                    child: Column(children: keysGine.map(_field).toList()),
                   ),
                 ],
               ),
@@ -636,9 +689,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    child: Column(
-                      children: keysTrauma.map(_field).toList(),
-                    ),
+                    child: Column(children: keysTrauma.map(_field).toList()),
                   ),
                 ],
               ),
@@ -656,9 +707,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    child: Column(
-                      children: keysUrg.map(_field).toList(),
-                    ),
+                    child: Column(children: keysUrg.map(_field).toList()),
                   ),
                 ],
               ),
@@ -666,7 +715,6 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
             const SizedBox(height: 10),
           ],
 
-          // ✅ Extras (para no perder campos raros/antiguos)
           if (extras.isNotEmpty) ...[
             Card(
               child: ExpansionTile(
@@ -677,9 +725,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    child: Column(
-                      children: extras.map(_field).toList(),
-                    ),
+                    child: Column(children: extras.map(_field).toList()),
                   ),
                 ],
               ),
@@ -692,7 +738,7 @@ class _HistoriaEditorScreenState extends State<HistoriaEditorScreen> {
             icon: const Icon(Icons.save),
             label: const Text('Guardar'),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
         ],
       ),
     );

@@ -10,19 +10,43 @@ import 'pacientes_store.dart';
 
 class ExportCsv {
   static Future<void> exportar(BuildContext context, List<Cita> citas) async {
-    final header = ['paciente', 'fecha', 'hora', 'estado', 'notas'];
+    // ✅ Agregamos columnas odontología sin quitar las viejas
+    final header = [
+      'paciente',
+      'fecha',
+      'hora',
+      'estado',
+      'servicio',
+      'motivo',
+      'pieza',
+      'telefono',
+      'notas',
+    ];
+
     final lines = <List<String>>[header];
 
     for (final c in citas) {
       final p = PacientesStore.porId(c.pacienteId ?? '');
       final nombre = p?.nombre ?? c.paciente;
 
-      final fecha =
-          '${c.fechaHora.day}/${c.fechaHora.month}/${c.fechaHora.year}';
+      final fecha = '${c.fechaHora.day}/${c.fechaHora.month}/${c.fechaHora.year}';
       final hora =
           '${c.fechaHora.hour.toString().padLeft(2, '0')}:${c.fechaHora.minute.toString().padLeft(2, '0')}';
 
-      lines.add([nombre, fecha, hora, c.estado.name, c.notas]);
+      // Tel: local o de la cita
+      final tel = (p?.telefono ?? c.phone).trim();
+
+      lines.add([
+        nombre,
+        fecha,
+        hora,
+        c.estado.name,
+        c.service,
+        c.motivo,
+        c.pieza,
+        tel,
+        c.notas,
+      ]);
     }
 
     final csv = const ListToCsvConverter().convert(lines);
@@ -33,7 +57,7 @@ class ExportCsv {
 
     await Share.shareXFiles(
       [XFile(file.path)],
-      text: 'Exportación de citas médicas (CSV)',
+      text: 'Exportación de citas (CSV)',
     );
   }
 }

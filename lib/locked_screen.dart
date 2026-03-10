@@ -1,6 +1,6 @@
 // lib/locked_screen.dart
 import 'package:flutter/material.dart';
-import 'license_store.dart';
+import 'package:citas_medicas/license_store.dart';
 
 class LockedScreen extends StatelessWidget {
   const LockedScreen({super.key});
@@ -9,7 +9,7 @@ class LockedScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Licencia requerida'),
+        title: const Text('App bloqueada'),
         centerTitle: true,
       ),
       body: Center(
@@ -18,25 +18,38 @@ class LockedScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.lock, size: 72),
-              const SizedBox(height: 12),
+              const Icon(Icons.lock, size: 70),
+              const SizedBox(height: 14),
               const Text(
-                'La app está bloqueada por licencia.',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                'Acceso bloqueado',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Activa o renueva la licencia para continuar.',
-                textAlign: TextAlign.center,
+              const SizedBox(height: 10),
+              ValueListenableBuilder<String>(
+                valueListenable: LicenseStore.reason,
+                builder: (_, reason, __) => Text(
+                  reason,
+                  textAlign: TextAlign.center,
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
+              ValueListenableBuilder<int>(
+                valueListenable: LicenseStore.daysLeft,
+                builder: (_, days, __) => Text(
+                  'Días restantes: $days',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 18),
               FilledButton.icon(
                 onPressed: () async {
+                  // Revalidar manualmente
                   await LicenseStore.validar();
+                  // La pantalla se actualizará sola por los ValueListenableBuilder
                 },
                 icon: const Icon(Icons.refresh),
-                label: const Text('Reintentar validación'),
+                label: const Text('Revalidar licencia'),
               ),
             ],
           ),

@@ -2,44 +2,34 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'citas_store.dart';
 import 'auth_store.dart';
+import 'citas_store.dart';
 
 class PersistenciaCitas {
-  // ✅ Si quieres que cada usuario tenga sus propias citas dentro de la clínica:
-  static const bool separarPorUsuario = true;
-
-  static String _keyFor(String clinicId, String? userId) {
-    if (separarPorUsuario) {
-      final uid = (userId == null || userId.trim().isEmpty) ? 'anon' : userId.trim();
-      return 'citas_guardadas_v2_${clinicId}_$uid';
-    }
-    return 'citas_guardadas_v2_$clinicId';
-  }
+  static String _keyFor(String clinicId) => 'citas_cache_v5_$clinicId';
 
   static Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value; // no truena si aun no hay (pero en tu app ya habrá)
-    final data = prefs.getString(_keyFor(clinicId, uid));
 
-    // ✅ si no existe, deja lista vacía
-    if (data == null || data.trim().isEmpty) {
+    final raw = prefs.getString(_keyFor(clinicId));
+    if (raw == null || raw.trim().isEmpty) {
       CitasStore.citas.clear();
       return;
     }
 
     try {
-      final decoded = jsonDecode(data);
+      final decoded = jsonDecode(raw);
       if (decoded is List) {
         CitasStore.citas
           ..clear()
           ..addAll(
             decoded.map((e) => Cita.fromJson(Map<String, dynamic>.from(e))),
           );
+      } else {
+        CitasStore.citas.clear();
       }
     } catch (_) {
-      // no crashear
       CitasStore.citas.clear();
     }
   }
@@ -47,23 +37,16 @@ class PersistenciaCitas {
   static Future<void> guardar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value;
-
     final list = CitasStore.citas.map((c) => c.toJson()).toList();
-    await prefs.setString(_keyFor(clinicId, uid), jsonEncode(list));
+    await prefs.setString(_keyFor(clinicId), jsonEncode(list));
   }
 
   static Future<void> limpiarTodo() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final uid = AuthStore.userId.value;
-
-    await prefs.remove(_keyFor(clinicId, uid));
+    await prefs.remove(_keyFor(clinicId));
     CitasStore.citas.clear();
   }
 
-  /// ✅ Útil si cambias de usuario sin reiniciar app
-  static Future<void> recargarPorSesionActual() async {
-    await cargar();
-  }
+  static Future<void> recargarPorSesionActual() async => cargar();
 }

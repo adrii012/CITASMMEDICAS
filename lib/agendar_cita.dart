@@ -1,3 +1,4 @@
+// lib/agendar_cita.dart
 import 'package:flutter/material.dart';
 
 import 'citas_store.dart';
@@ -11,6 +12,10 @@ import 'paciente.dart';
 import 'horarios.dart';
 import 'festivos.dart';
 
+// 🔥 Firestore
+import 'auth_store.dart';
+import 'fire_appointments.dart';
+
 class AgendarCitaScreen extends StatefulWidget {
   final Cita? citaParaEditar;
   const AgendarCitaScreen({super.key, this.citaParaEditar});
@@ -22,7 +27,7 @@ class AgendarCitaScreen extends StatefulWidget {
 class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // Campos
+  // Campos base
   String? _pacienteId;
   String _pacienteRespaldo = '';
   DateTime _fecha = DateTime.now();
@@ -30,7 +35,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
   EstadoCita _estado = EstadoCita.pendiente;
   final _notasCtrl = TextEditingController();
 
-  // ✅ NUEVO: duración en minutos
+  // ✅ duración en minutos
   int _duracionMin = 30;
   static const _duraciones = [15, 20, 30, 40, 45, 60, 90];
 
@@ -68,6 +73,17 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
   }
 
   bool _diaValido(DateTime d) => !Festivos.estaBloqueado(d);
+
+  String _statusToStr(EstadoCita e) {
+    switch (e) {
+      case EstadoCita.pendiente:
+        return 'pendiente';
+      case EstadoCita.realizada:
+        return 'realizada';
+      case EstadoCita.cancelada:
+        return 'cancelada';
+    }
+  }
 
   Future<void> _pickFecha() async {
     final picked = await showDatePicker(
@@ -139,7 +155,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
               const SizedBox(height: 10),
               TextField(
                 controller: telCtrl,
-                decoration: const InputDecoration(labelText: 'Teléfono (opcional)'),
+                decoration: const InputDecoration(labelText: 'Teléfono (WhatsApp)'),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
               ),
@@ -157,7 +173,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancelar'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Guardar'),
           ),
@@ -181,7 +197,6 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
       nombre: nombre,
       telefono: telCtrl.text.trim(),
       notas: notasCtrl.text.trim(),
-      // createdAtIso se pone solo
     );
 
     PacientesStore.pacientes.add(nuevo);
@@ -229,6 +244,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
 
     final p = PacientesStore.porId(_pacienteId ?? '');
     final nombreFinal = p?.nombre ?? _pacienteRespaldo;
+    final telFinal = (p?.telefono ?? '').trim();
 
     if (nombreFinal.trim().isEmpty) {
       if (!mounted) return;
@@ -238,38 +254,91 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
       return;
     }
 
+    final clinicId = AuthStore.requireClinicId();
+    final uid = AuthStore.uid.value ?? 'unknown';
+    final email = AuthStore.email.value ?? '';
+
     String idParaNoti;
 
     if (_editando) {
       final c = widget.citaParaEditar!;
+
+      // ===== Firestore update =====
+      await FireAppointments.update(
+        clinicId: clinicId,
+        appointmentId: c.id,
+        updatedByUid: uid,
+        startAt: fechaHora,
+        patientName: nombreFinal,
+        patientId: _pacienteId,
+        phone: telFinal,
+        notes: _notasCtrl.text.trim(),
+        durationMin: _duracionMin,
+      );
+
+      await FireAppointments.updateStatus(
+        clinicId: clinicId,
+        appointmentId: c.id,
+        updatedByUid: uid,
+        status: _statusToStr(_estado),
+      );
+
+      // ===== Local update =====
       c.pacienteId = _pacienteId;
       c.paciente = nombreFinal;
       c.fechaHora = fechaHora;
       c.estado = _estado;
       c.notas = _notasCtrl.text.trim();
-      c.duracionMin = _duracionMin; // ✅ NUEVO
+      c.duracionMin = _duracionMin;
+
+      // Si tu modelo aún tiene phone/service/motivo/pieza, no los tocamos.
+      // Solo dejamos lo esencial.
+
       idParaNoti = c.id;
     } else {
+      // ===== Crear en Firestore y usar ID =====
+      final newId = await FireAppointments.create(
+        clinicId: clinicId,
+        createdByUid: uid,
+        createdByEmail: email,
+        startAt: fechaHora,
+        patientName: nombreFinal,
+        patientId: _pacienteId,
+        phone: telFinal,
+        notes: _notasCtrl.text.trim(),
+        durationMin: _duracionMin,
+      );
+
+      await FireAppointments.updateStatus(
+        clinicId: clinicId,
+        appointmentId: newId,
+        updatedByUid: uid,
+        status: _statusToStr(_estado),
+      );
+
+      // ===== Local create =====
       final c = Cita(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: newId,
         paciente: nombreFinal,
         pacienteId: _pacienteId,
         fechaHora: fechaHora,
         estado: _estado,
         notas: _notasCtrl.text.trim(),
-        duracionMin: _duracionMin, // ✅ NUEVO
+        duracionMin: _duracionMin,
       );
       CitasStore.citas.add(c);
       idParaNoti = c.id;
     }
 
+    // Guardado local (si todavía lo usas)
     await PersistenciaCitas.guardar();
 
+    // Notificaciones
     if (_estado == EstadoCita.pendiente && fechaHora.isAfter(DateTime.now())) {
       await Notificaciones.programar(
         id: idParaNoti,
         titulo: 'Cita médica',
-        cuerpo: 'Tienes cita con $nombreFinal',
+        cuerpo: 'Cita con $nombreFinal',
         fechaHora: fechaHora,
       );
     } else {
@@ -283,7 +352,6 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
   @override
   Widget build(BuildContext context) {
     final pacientes = PacientesStore.pacientes;
-
     final fechaHora = _toDateTime(_fecha, _hora);
     final bloqueado = Festivos.estaBloqueado(DateTime(_fecha.year, _fecha.month, _fecha.day));
 
@@ -310,14 +378,12 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
                         labelText: 'Paciente',
                         border: OutlineInputBorder(),
                       ),
-                      items: [
-                        ...pacientes.map((p) {
-                          return DropdownMenuItem(
-                            value: p.id,
-                            child: Text(p.nombre, overflow: TextOverflow.ellipsis),
-                          );
-                        }),
-                      ],
+                      items: pacientes
+                          .map((p) => DropdownMenuItem(
+                                value: p.id,
+                                child: Text(p.nombre, overflow: TextOverflow.ellipsis),
+                              ))
+                          .toList(),
                       onChanged: (id) {
                         setState(() {
                           _pacienteId = id;
@@ -346,25 +412,22 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
               ],
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
-            // ✅ NUEVO: duración
             DropdownButtonFormField<int>(
               value: _duracionMin,
               decoration: const InputDecoration(
                 labelText: 'Duración de consulta',
                 border: OutlineInputBorder(),
               ),
-              items: _duraciones
-                  .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
-                  .toList(),
+              items: _duraciones.map((m) => DropdownMenuItem(value: m, child: Text('$m min'))).toList(),
               onChanged: (v) {
                 if (v == null) return;
                 setState(() => _duracionMin = v);
               },
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -379,8 +442,6 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
               ),
             ),
 
-            const SizedBox(height: 8),
-
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.schedule),
@@ -394,7 +455,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             DropdownButtonFormField<EstadoCita>(
               value: _estado,
@@ -402,16 +463,11 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
                 labelText: 'Estado',
                 border: OutlineInputBorder(),
               ),
-              items: EstadoCita.values
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e.name)))
-                  .toList(),
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() => _estado = v);
-              },
+              items: EstadoCita.values.map((e) => DropdownMenuItem(value: e, child: Text(e.name))).toList(),
+              onChanged: (v) => setState(() => _estado = v ?? _estado),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             TextFormField(
               controller: _notasCtrl,
@@ -423,7 +479,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             Card(
               child: ListTile(
@@ -438,7 +494,7 @@ class _AgendarCitaScreenState extends State<AgendarCitaScreen> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
             ElevatedButton.icon(
               onPressed: _guardarCita,

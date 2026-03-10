@@ -1,7 +1,8 @@
-// lib/login_screen.dart
 import 'package:flutter/material.dart';
-import 'clinic_store.dart';
-import 'auth_store.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import 'package:citas_medicas/auth_store.dart';
+import 'package:citas_medicas/fire_clinic_users.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,237 +12,205 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  List<Clinic> _clinics = [];
-  Clinic? _selectedClinic;
-
+  final _clinicIdCtrl = TextEditingController();
   final _clinicNameCtrl = TextEditingController();
-  final _userCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
 
-  bool _creatingClinic = false;
-
-  // ✅ permitir crear clínica aunque ya existan
-  bool _showCreateNewClinic = false;
-
-  static const _templates = <String>[
-    'Clínica General',
-    'Ginecología',
-    'Trauma / Ortopedia',
-    'Medicina Interna',
-    'Odontología (Dentista)',
-    'Pediatría',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    _clinics = await ClinicStore.cargarClinics();
-    if (_clinics.isNotEmpty) _selectedClinic = _clinics.first;
-    if (mounted) setState(() {});
-  }
+  bool _loading = false;
+  bool _createMode = false;
 
   @override
   void dispose() {
+    _clinicIdCtrl.dispose();
     _clinicNameCtrl.dispose();
-    _userCtrl.dispose();
+    _emailCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
   }
 
-  void _useTemplate(String name) {
-    _clinicNameCtrl.text = name;
-    setState(() => _showCreateNewClinic = true);
-
-    if (_userCtrl.text.trim().isEmpty) {
-      final lower = name.toLowerCase();
-      if (lower.contains('gine')) _userCtrl.text = 'gine';
-      else if (lower.contains('trauma')) _userCtrl.text = 'trauma';
-      else if (lower.contains('interna')) _userCtrl.text = 'mi';
-      else if (lower.contains('odonto') || lower.contains('dent')) _userCtrl.text = 'dental';
-      else if (lower.contains('pedi')) _userCtrl.text = 'pediatria';
-      else _userCtrl.text = 'general';
-    }
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _createClinicAndAdmin() async {
-    final name = _clinicNameCtrl.text.trim();
-    final user = _userCtrl.text.trim();
+  FirebaseAuth get _auth => FirebaseAuth.instance;
+  String _normEmail(String e) => e.trim().toLowerCase();
+
+  Future<void> _crearClinicaYAdmin() async {
+    final clinicId = _clinicIdCtrl.text.trim();
+    final clinicName = _clinicNameCtrl.text.trim();
+    final email = _normEmail(_emailCtrl.text);
     final pass = _passCtrl.text;
 
-    if (name.isEmpty || user.isEmpty || pass.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Completa clínica, usuario y contraseña')),
-      );
+    if (clinicId.isEmpty || clinicName.isEmpty || email.isEmpty || pass.isEmpty) {
+      _snack('Completa Clinic ID, nombre, correo y contraseña');
       return;
     }
 
-    setState(() => _creatingClinic = true);
-
+    setState(() => _loading = true);
     try {
-      final clinics = await ClinicStore.cargarClinics();
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: pass,
+      );
+      final user = cred.user;
+      if (user == null) throw Exception('No se pudo crear usuario');
 
-      final exists = clinics.any((c) => c.name.trim().toLowerCase() == name.toLowerCase());
-      if (exists) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ya existe una clínica con ese nombre')),
-        );
+      await FireClinicUsers.ensureClinic(
+        clinicId: clinicId,
+        clinicName: clinicName,
+        ownerUid: user.uid,
+        ownerEmail: email,
+      );
+
+      await FireClinicUsers.ensureUser(
+        clinicId: clinicId,
+        uid: user.uid,
+        email: email,
+        role: 'admin',
+        active: true,
+      );
+
+      final info = await FireClinicUsers.getRoleForClinic(
+        clinicId: clinicId,
+        uid: user.uid,
+      );
+
+      if (!info.active) {
+        await _auth.signOut();
+        throw Exception('Usuario desactivado para esta clínica');
+      }
+
+      await AuthStore.login(
+        clinicIdValue: clinicId,
+        uidValue: user.uid,
+        roleValue: info.role,
+        emailValue: email,
+      );
+
+      // ✅ NO Navigator.pop(); Login es la pantalla raíz.
+      // SessionGate detecta AuthStore.isLogged y cambia a Home automáticamente.
+      if (!mounted) return;
+      _snack('Acceso correcto ✅');
+      return;
+    } on FirebaseAuthException catch (e) {
+      _snack(_authError(e));
+    } catch (e) {
+      _snack('Error: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _entrar() async {
+    final clinicId = _clinicIdCtrl.text.trim();
+    final email = _normEmail(_emailCtrl.text);
+    final pass = _passCtrl.text;
+
+    if (clinicId.isEmpty || email.isEmpty || pass.isEmpty) {
+      _snack('Completa Clinic ID, correo y contraseña');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: pass,
+      );
+      final user = cred.user;
+      if (user == null) throw Exception('No se pudo iniciar sesión');
+
+      final info = await FireClinicUsers.getRoleForClinic(
+        clinicId: clinicId,
+        uid: user.uid,
+      );
+
+      if (!info.active) {
+        await _auth.signOut();
+        _snack('No tienes acceso a esta clínica o estás desactivado');
         return;
       }
 
-      final clinicId = 'cli_${DateTime.now().millisecondsSinceEpoch}';
-      final adminId = 'usr_${DateTime.now().microsecondsSinceEpoch}';
-
-      final admin = ClinicStore.createUser(
-        id: adminId,
-        username: user,
-        password: pass,
-        role: 'admin',
-      );
-
-      final clinic = Clinic(id: clinicId, name: name, users: [admin]);
-      clinics.add(clinic);
-      await ClinicStore.guardarClinics(clinics);
-
-      // ✅ guardamos rol admin en AuthStore
       await AuthStore.login(
         clinicIdValue: clinicId,
-        userIdValue: adminId,
-        roleValue: 'admin',
+        uidValue: user.uid,
+        roleValue: info.role,
+        emailValue: email,
       );
 
+      // ✅ NO Navigator.pop(); Login es la pantalla raíz.
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      _snack('Bienvenido ✅');
+      return;
+    } on FirebaseAuthException catch (e) {
+      _snack(_authError(e));
+    } catch (e) {
+      _snack('Error: $e');
     } finally {
-      if (mounted) setState(() => _creatingClinic = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _loginExisting() async {
-    final clinic = _selectedClinic;
-    if (clinic == null) return;
-
-    final user = _userCtrl.text.trim();
-    final pass = _passCtrl.text;
-
-    if (user.isEmpty || pass.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Escribe usuario y contraseña')),
-      );
-      return;
+  String _authError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'email-already-in-use':
+        return 'Ese correo ya existe. Usa "Entrar" o cambia correo.';
+      case 'invalid-email':
+        return 'Correo inválido.';
+      case 'weak-password':
+        return 'Contraseña muy débil (mínimo 6 caracteres).';
+      case 'user-not-found':
+        return 'Usuario no encontrado.';
+      case 'wrong-password':
+        return 'Contraseña incorrecta.';
+      case 'invalid-credential':
+        return 'Credenciales inválidas.';
+      default:
+        return 'Auth error: ${e.code}';
     }
+  }
 
-    final found = clinic.users
-        .where((u) => u.username.toLowerCase() == user.toLowerCase())
-        .toList();
-
-    if (found.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Usuario no existe en esta clínica')),
-      );
-      return;
+  Future<void> _onSubmit() async {
+    if (_loading) return;
+    if (_createMode) {
+      await _crearClinicaYAdmin();
+    } else {
+      await _entrar();
     }
-
-    final u = found.first;
-    final ok = ClinicStore.verifyUser(u, pass);
-
-    if (!ok) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Contraseña incorrecta')),
-      );
-      return;
-    }
-
-    // ✅ guardamos el rol real del usuario
-    await AuthStore.login(
-      clinicIdValue: clinic.id,
-      userIdValue: u.id,
-      roleValue: u.role,
-    );
-
-    if (!mounted) return;
-    Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasClinics = _clinics.isNotEmpty;
-    final createMode = (!hasClinics) || _showCreateNewClinic;
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Acceso a la clínica')),
+      appBar: AppBar(
+        title: const Text('Acceso a la clínica'),
+        actions: [
+          TextButton(
+            onPressed: _loading ? null : () => setState(() => _createMode = !_createMode),
+            child: Text(_createMode ? 'Ya tengo clínica' : 'Crear clínica'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (!hasClinics) ...[
-            const Text(
-              'Primera vez: crea tu clínica y tu usuario administrador.',
-              style: TextStyle(fontWeight: FontWeight.bold),
+          Text(
+            _createMode ? 'Crear clínica (Admin)' : 'Entrar a clínica',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _clinicIdCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Clinic ID (código de clínica)',
+              border: OutlineInputBorder(),
+              helperText: 'Este código lo compartes al cliente.',
             ),
-            const SizedBox(height: 10),
-          ] else ...[
-            const Text(
-              'Entrar a clínica existente',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<Clinic>(
-              value: _selectedClinic,
-              items: _clinics
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedClinic = v),
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              value: _showCreateNewClinic,
-              onChanged: (v) => setState(() => _showCreateNewClinic = v),
-              title: const Text('Crear nueva clínica'),
-              subtitle: const Text('Útil para agregar Dentista, Pediatría, etc.'),
-            ),
-            const SizedBox(height: 6),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Plantillas rápidas',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _templates.map((t) {
-                        return OutlinedButton(
-                          onPressed: () => _useTemplate(t),
-                          child: Text(t),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (createMode) ...[
-            const Text(
-              'Nueva clínica',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
+          ),
+          const SizedBox(height: 12),
+          if (_createMode) ...[
             TextField(
               controller: _clinicNameCtrl,
               decoration: const InputDecoration(
@@ -252,9 +221,9 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 12),
           ],
           TextField(
-            controller: _userCtrl,
+            controller: _emailCtrl,
             decoration: const InputDecoration(
-              labelText: 'Usuario',
+              labelText: 'Correo',
               border: OutlineInputBorder(),
             ),
           ),
@@ -269,11 +238,11 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
-            onPressed: _creatingClinic
-                ? null
-                : (createMode ? _createClinicAndAdmin : _loginExisting),
-            icon: const Icon(Icons.login),
-            label: Text(createMode ? 'Crear clínica y entrar' : 'Entrar'),
+            onPressed: _loading ? null : _onSubmit,
+            icon: _loading
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.login),
+            label: Text(_createMode ? 'Crear clínica y entrar' : 'Entrar'),
           ),
         ],
       ),

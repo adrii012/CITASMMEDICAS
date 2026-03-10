@@ -7,17 +7,13 @@ import 'historias_store.dart';
 import 'historia_clinica.dart';
 
 class PersistenciaHistorias {
-  static String _key(String clinicId, String userId) =>
-      'historias_guardadas_v2_${clinicId}_$userId';
+  static String _key(String clinicId) => 'historias_cache_v5_$clinicId';
 
   static Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final userId = AuthStore.requireUserId();
 
-    final raw = prefs.getString(_key(clinicId, userId));
-
-    // ✅ IMPORTANTE: si no hay nada guardado, limpiar memoria para no mezclar sesiones
+    final raw = prefs.getString(_key(clinicId));
     if (raw == null || raw.trim().isEmpty) {
       HistoriasStore.clear();
       return;
@@ -29,18 +25,14 @@ class PersistenciaHistorias {
         HistoriasStore.historias
           ..clear()
           ..addAll(
-            decoded
-                .whereType<Map>()
-                .map((e) => HistoriaClinica.fromJson(
-                      Map<String, dynamic>.from(e),
-                    )),
+            decoded.whereType<Map>().map((e) {
+              return HistoriaClinica.fromJson(Map<String, dynamic>.from(e));
+            }),
           );
       } else {
-        // ✅ si viene raro, limpia para evitar basura
         HistoriasStore.clear();
       }
     } catch (_) {
-      // ✅ si el json está corrupto, no crashear y no mezclar
       HistoriasStore.clear();
     }
   }
@@ -48,18 +40,14 @@ class PersistenciaHistorias {
   static Future<void> guardar() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final userId = AuthStore.requireUserId();
-
     final list = HistoriasStore.historias.map((h) => h.toJson()).toList();
-    await prefs.setString(_key(clinicId, userId), jsonEncode(list));
+    await prefs.setString(_key(clinicId), jsonEncode(list));
   }
 
   static Future<void> limpiarTodo() async {
     final prefs = await SharedPreferences.getInstance();
     final clinicId = AuthStore.requireClinicId();
-    final userId = AuthStore.requireUserId();
-
-    await prefs.remove(_key(clinicId, userId));
+    await prefs.remove(_key(clinicId));
     HistoriasStore.clear();
   }
 }
